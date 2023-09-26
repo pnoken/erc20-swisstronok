@@ -1,26 +1,52 @@
-const { ethers } = require("hardhat");
+const hre = require("hardhat");
+const { encryptDataField, decryptNodeResponse } = require("@swisstronik/swisstronik.js");
+
+/**
+ * Send a shielded transaction to the Swisstronik blockchain.
+ *
+ * @param {object} signer - The signer object for sending the transaction.
+ * @param {string} destination - The address of the contract to interact with.
+ * @param {string} data - Encoded data for the transaction.
+ * @param {number} value - Amount of value to send with the transaction.
+ *
+ * @returns {Promise} - The transaction object.
+ */
+const sendShieldedTransaction = async (signer, destination, data, value) => {
+    // Get the RPC link from the network configuration
+    const rpclink = hre.network.config.url;
+
+    // Encrypt transaction data
+    const [encryptedData] = await encryptDataField(rpclink, data);
+
+    // Construct and sign transaction with encrypted data
+    return await signer.sendTransaction({
+        from: signer.address,
+        to: destination,
+        data: encryptedData,
+        value,
+    });
+};
 
 async function main() {
-    const [deployer] = await ethers.getSigners();
+    // Address of the deployed contract
+    const contractAddress = "0xC6C2760424856EFEbfbEdb41991Ef39A423591a5";
 
-    const MyToken = await ethers.getContractFactory("MyToken");
-    const myToken = await MyToken.deploy();
+    // Get the signer (your account)
+    const [signer] = await hre.ethers.getSigners();
 
-    console.log(`Token deployed to address: ${myToken.address}`);
+    // Construct a contract instance
+    const contractFactory = await hre.ethers.getContractFactory("Token");
+    const contract = contractFactory.attach(contractAddress);
 
-    await myToken.mint(deployer.address, ethers.utils.parseEther("100")); // Mint 100 tokens
-    console.log(`Minted 100 tokens to deployer`);
+    // Send a shielded transaction to set a message in the contract
+    const mintTx = await sendShieldedTransaction(signer, contractAddress, contract.interface.encodeFunctionData("mint", [signer.address, "100"]), 0);
+    await mintTx.wait();
 
-    await myToken.mint("0x1731D34B07CA2235E668c7B0941d4BfAB370a2d0", ethers.utils.parseEther("50")); // Mint 50 tokens to another address
-    console.log(`Minted 50 tokens to another address`);
-
-    await myToken.mint("0x683287150dE08509909E7efA8e4609DA8E34360F", ethers.utils.parseEther("200")); // Mint 200 tokens to another address
-    console.log(`Minted 200 tokens to another address`);
+    //It should return a TransactionResponse object
+    console.log("Transaction Receipt: ", mintTx);
 }
 
-main()
-    .then(() => process.exit(0))
-    .catch((error) => {
-        console.error(error);
-        process.exit(1);
-    });
+main().catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+});
